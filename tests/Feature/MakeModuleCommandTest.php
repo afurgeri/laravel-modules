@@ -73,3 +73,21 @@ test('make:module-model creates a model inside an existing module', function ():
         ->toContain('namespace Modules\\Catalog\\Models;')
         ->toContain('class Product extends Model');
 });
+
+test('make:module-model --migration creates the migration inside the module', function (): void {
+    $this->artisan('make:module', ['name' => $this->module])
+        ->assertExitCode(0);
+
+    $this->artisan('make:module-model', [
+        'name' => 'Product',
+        '--module' => $this->module,
+        '--migration' => true,
+    ])->assertExitCode(0);
+
+    $migrations = File::glob("{$this->modulePath}/database/migrations/*_create_products_table.php");
+
+    expect($migrations)->not->toBeEmpty()
+        ->and(File::get($migrations[0]))
+        ->toContain("Schema::create('products'")
+        ->toContain("Schema::dropIfExists('products')");
+});

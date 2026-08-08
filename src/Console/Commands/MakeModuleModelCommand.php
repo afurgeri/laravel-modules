@@ -13,7 +13,7 @@ class MakeModuleModelCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'make:module-model {name : The model name} {--module= : The existing StudlyCase module name} {--force : Overwrite the model if it exists} {--pivot : Create a custom pivot model} {--morph-pivot : Create a custom polymorphic pivot model}';
+    protected $signature = 'make:module-model {name : The model name} {--module= : The existing StudlyCase module name} {--force : Overwrite the model if it exists} {--pivot : Create a custom pivot model} {--morph-pivot : Create a custom polymorphic pivot model} {--migration : Create a new migration file for the model}';
 
     /**
      * The console command description.
@@ -52,6 +52,12 @@ class MakeModuleModelCommand extends Command
 
         $this->components->info("Model [Modules\\{$module}\\Models\\{$name}] created successfully.");
 
+        if ($this->option('migration')) {
+            $migrationPath = $this->createMigration($module, $name);
+
+            $this->components->info("Migration [{$migrationPath}] created successfully.");
+        }
+
         return self::SUCCESS;
     }
 
@@ -84,5 +90,54 @@ class MakeModuleModelCommand extends Command
     private function baseClassName(string $baseClass): string
     {
         return class_basename($baseClass);
+    }
+
+    private function createMigration(string $module, string $modelName): string
+    {
+        $table = Str::snake(Str::pluralStudly(class_basename($modelName)));
+
+        if ($this->option('pivot')) {
+            $table = Str::singular($table);
+        }
+
+        $path = base_path("modules/{$module}/database/migrations/".date('Y_m_d_His')."_create_{$table}_table.php");
+
+        File::put($path, $this->migrationContents($table));
+
+        return $path;
+    }
+
+    private function migrationContents(string $table): string
+    {
+        return <<<PHP
+        <?php
+
+        use Illuminate\Database\Migrations\Migration;
+        use Illuminate\Database\Schema\Blueprint;
+        use Illuminate\Support\Facades\Schema;
+
+        return new class extends Migration
+        {
+            /**
+             * Run the migrations.
+             */
+            public function up(): void
+            {
+                Schema::create('{$table}', function (Blueprint \$table): void {
+                    \$table->id();
+                    \$table->timestamps();
+                });
+            }
+
+            /**
+             * Reverse the migrations.
+             */
+            public function down(): void
+            {
+                Schema::dropIfExists('{$table}');
+            }
+        };
+
+        PHP;
     }
 }
