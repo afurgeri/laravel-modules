@@ -88,6 +88,88 @@ test('make:module-model --migration creates the migration inside the module', fu
 
     expect($migrations)->not->toBeEmpty()
         ->and(File::get($migrations[0]))
+        ->toContain('use Illuminate\\Database\\Migrations\\Migration;')
         ->toContain("Schema::create('products'")
         ->toContain("Schema::dropIfExists('products')");
+});
+
+test('make:module-model --all creates the common model artifacts', function (): void {
+    $this->artisan('make:module', ['name' => $this->module])
+        ->assertExitCode(0);
+
+    $this->artisan('make:module-model', [
+        'name' => 'Product',
+        '--module' => $this->module,
+        '--all' => true,
+    ])->assertExitCode(0);
+
+    expect(File::exists($this->modulePath.'/src/Models/Product.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/database/factories/ProductFactory.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/database/seeders/ProductSeeder.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Policies/ProductPolicy.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Http/Controllers/ProductController.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Http/Resources/ProductResource.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Http/Requests/StoreProductRequest.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Http/Requests/UpdateProductRequest.php'))->toBeTrue()
+        ->and(File::glob($this->modulePath.'/database/migrations/*_create_products_table.php'))->not->toBeEmpty()
+        ->and(File::get($this->modulePath.'/src/Models/Product.php'))
+        ->toContain('use HasFactory;')
+        ->toContain('#[UsePolicy(ProductPolicy::class)]');
+});
+
+test('module generators do not partially write artifacts after a conflict', function (): void {
+    $this->artisan('make:module', ['name' => $this->module])
+        ->assertExitCode(0);
+
+    File::ensureDirectoryExists($this->modulePath.'/src/Models');
+    File::put($this->modulePath.'/src/Models/Product.php', '<?php // existing');
+
+    $this->artisan('make:module-model', [
+        'name' => 'Product',
+        '--module' => $this->module,
+        '--all' => true,
+    ])->assertExitCode(1);
+
+    expect(File::get($this->modulePath.'/src/Models/Product.php'))->toBe('<?php // existing')
+        ->and(File::exists($this->modulePath.'/database/factories/ProductFactory.php'))->toBeFalse();
+});
+
+test('module generators create standalone artifacts', function (): void {
+    $this->artisan('make:module', ['name' => $this->module])
+        ->assertExitCode(0);
+
+    $this->artisan('make:module-controller', [
+        'name' => 'ReportController',
+        '--module' => $this->module,
+        '--api' => true,
+    ])->assertExitCode(0);
+
+    $this->artisan('make:module-request', [
+        'name' => 'StoreReportRequest',
+        '--module' => $this->module,
+    ])->assertExitCode(0);
+
+    $this->artisan('make:module-factory', [
+        'name' => 'ReportFactory',
+        '--module' => $this->module,
+        '--model' => 'Report',
+    ])->assertExitCode(0);
+
+    $this->artisan('make:module-policy', [
+        'name' => 'ReportPolicy',
+        '--module' => $this->module,
+        '--model' => 'Report',
+    ])->assertExitCode(0);
+
+    $this->artisan('make:module-migration', [
+        'name' => 'create_reports_table',
+        '--module' => $this->module,
+        '--create' => 'reports',
+    ])->assertExitCode(0);
+
+    expect(File::exists($this->modulePath.'/src/Http/Controllers/ReportController.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Http/Requests/StoreReportRequest.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/database/factories/ReportFactory.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Policies/ReportPolicy.php'))->toBeTrue()
+        ->and(File::glob($this->modulePath.'/database/migrations/*_create_reports_table.php'))->not->toBeEmpty();
 });

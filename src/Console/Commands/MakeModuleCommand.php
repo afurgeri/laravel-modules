@@ -57,10 +57,14 @@ class MakeModuleCommand extends Command
         File::put($providerPath, $this->providerContents($name));
         File::put($routesPath, $this->routesContents());
 
-        $this->registerAutoload($name);
+        $autoloadChanged = $this->registerAutoload($name);
         $this->registerProvider($name);
 
         $this->components->info("Module [{$name}] created successfully.");
+
+        if ($autoloadChanged) {
+            $this->components->warn('Run [composer dump-autoload] to load the new module namespaces.');
+        }
 
         return self::SUCCESS;
     }
@@ -100,7 +104,7 @@ class MakeModuleCommand extends Command
         PHP;
     }
 
-    private function registerAutoload(string $name): void
+    private function registerAutoload(string $name): bool
     {
         $path = base_path('composer.json');
 
@@ -135,6 +139,8 @@ class MakeModuleCommand extends Command
         if ($changed) {
             File::put($path, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR).PHP_EOL);
         }
+
+        return $changed;
     }
 
     private function registerProvider(string $name): void
