@@ -1,0 +1,9 @@
+<?php
+
+namespace {{ namespace }};
+
+{{ imports }}
+
+{{ attributes }}class {{ class }} extends {{ base_class }}
+{
+{{ traits }}{{ factory_method }}}

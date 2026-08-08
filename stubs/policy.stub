@@ -1,0 +1,18 @@
+<?php
+
+namespace {{ namespace }};
+
+use {{ model_class }};
+
+class {{ class }}Policy
+{
+    public function viewAny(mixed $user): bool
+    {
+        return true;
+    }
+
+    public function view(mixed $user, {{ model_class_basename }} ${{ variable }}): bool
+    {
+        return true;
+    }
+}

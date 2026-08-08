@@ -70,6 +70,26 @@ final class ModuleArtifactGenerator
     }
 
     /**
+     * @param  array<string, string>  $replacements
+     */
+    public function renderStub(string $name, array $replacements = []): string
+    {
+        $path = dirname(__DIR__, 2)."/stubs/{$name}.stub";
+
+        if (! $this->files->exists($path)) {
+            throw new RuntimeException("Stub [{$name}] does not exist.");
+        }
+
+        $contents = $this->files->get($path);
+
+        foreach ($replacements as $key => $value) {
+            $contents = str_replace('{{ '.$key.' }}', $value, $contents);
+        }
+
+        return $contents;
+    }
+
+    /**
      * @return array<string, string>
      */
     public function modelArtifacts(
@@ -144,6 +164,76 @@ final class ModuleArtifactGenerator
         return $artifacts;
     }
 
+    /**
+     * @return array<string, string>
+     */
+    public function genericArtifact(
+        string $module,
+        string $name,
+        string $type,
+        ?string $model = null,
+        ?string $signature = null,
+    ): array {
+        $class = class_basename($name);
+        $directories = [
+            'job' => ['src/Jobs', 'Jobs', 'job'],
+            'event' => ['src/Events', 'Events', 'event'],
+            'listener' => ['src/Listeners', 'Listeners', 'listener'],
+            'notification' => ['src/Notifications', 'Notifications', 'notification'],
+            'mail' => ['src/Mail', 'Mail', 'mail'],
+            'command' => ['src/Console/Commands', 'Console\\Commands', 'command'],
+            'middleware' => ['src/Http/Middleware', 'Http\\Middleware', 'middleware'],
+            'rule' => ['src/Rules', 'Rules', 'rule'],
+            'observer' => ['src/Observers', 'Observers', 'observer'],
+            'cast' => ['src/Casts', 'Casts', 'cast'],
+            'enum' => ['src/Enums', 'Enums', 'enum'],
+        ];
+
+        if ($type === 'resource') {
+            $resourceClass = str_ends_with($class, 'Resource')
+                ? substr($class, 0, -strlen('Resource'))
+                : $class;
+            $modelName = $model ?? $resourceClass;
+            $modelName = $this->normalizeName($modelName);
+            $modelClass = "Modules\\{$module}\\Models\\{$modelName}";
+
+            return [
+                $this->modulePath($module)."/src/Http/Resources/{$class}.php" => $this->renderStub('resource', [
+                    'namespace' => "Modules\\{$module}\\Http\\Resources",
+                    'model_class' => $modelClass,
+                    'model_class_basename' => class_basename($modelName),
+                    'class' => $resourceClass,
+                ]),
+            ];
+        }
+
+        if (! isset($directories[$type])) {
+            throw new InvalidArgumentException("Unsupported module artifact type [{$type}].");
+        }
+
+        [$directory, $namespace, $stub] = $directories[$type];
+        $replacements = [
+            'namespace' => "Modules\\{$module}\\{$namespace}",
+            'class' => $class,
+        ];
+
+        if ($type === 'command') {
+            $replacements['signature'] = $signature ?? Str::kebab($module).':'.Str::kebab($class);
+            $replacements['description'] = "Execute the {$class} command.";
+        }
+
+        if ($type === 'observer') {
+            $modelName = $this->normalizeName($model ?? 'Model');
+            $replacements['model_class'] = "Modules\\{$module}\\Models\\{$modelName}";
+            $replacements['model_class_basename'] = class_basename($modelName);
+            $replacements['variable'] = Str::camel(class_basename($modelName));
+        }
+
+        return [
+            $this->modulePath($module)."/{$directory}/".str_replace('\\', '/', $name).'.php' => $this->renderStub($stub, $replacements),
+        ];
+    }
+
     public function migrationPath(string $module, string $table): string
     {
         $directory = $this->modulePath($module).'/database/migrations';
@@ -161,49 +251,10 @@ final class ModuleArtifactGenerator
     public function migrationContents(?string $table = null): string
     {
         if ($table === null) {
-            return <<<'PHP'
-            <?php
-
-            use Illuminate\Database\Migrations\Migration;
-
-            return new class extends Migration
-            {
-                public function up(): void
-                {
-                    //
-                }
-
-                public function down(): void
-                {
-                    //
-                }
-            };
-            PHP;
+            return $this->renderStub('migration-empty');
         }
 
-        return <<<PHP
-        <?php
-
-        use Illuminate\Database\Migrations\Migration;
-        use Illuminate\Database\Schema\Blueprint;
-        use Illuminate\Support\Facades\Schema;
-
-        return new class extends Migration
-        {
-            public function up(): void
-            {
-                Schema::create('{$table}', function (Blueprint \$table): void {
-                    \$table->id();
-                    \$table->timestamps();
-                });
-            }
-
-            public function down(): void
-            {
-                Schema::dropIfExists('{$table}');
-            }
-        };
-        PHP;
+        return $this->renderStub('migration', ['table' => $table]);
     }
 
     private function modelContents(string $module, string $name, bool $factory, bool $policy, bool $pivot, bool $morphPivot): string
@@ -230,22 +281,44 @@ final class ModuleArtifactGenerator
             $attributes = "#[UsePolicy({$class}Policy::class)]".PHP_EOL;
         }
 
-        return "<?php\n\nnamespace {$namespace};\n\n".implode(PHP_EOL, $imports)."\n\n{$attributes}class {$class} extends ".class_basename($baseClass)."\n{\n{$traits}{$factoryMethod}}\n";
+        return $this->renderStub('model', [
+            'namespace' => $namespace,
+            'imports' => implode(PHP_EOL, $imports),
+            'attributes' => $attributes,
+            'class' => $class,
+            'base_class' => class_basename($baseClass),
+            'traits' => $traits,
+            'factory_method' => $factoryMethod,
+        ]);
     }
 
     private function factoryContents(string $module, string $class, string $modelClass): string
     {
-        return "<?php\n\nnamespace Modules\\{$module}\\Database\\Factories;\n\nuse {$modelClass};\nuse Illuminate\\Database\\Eloquent\\Factories\\Factory;\n\n/** @extends Factory<{$class}> */\nclass {$class}Factory extends Factory\n{\n    protected \$model = {$class}::class;\n\n    public function definition(): array\n    {\n        return [];\n    }\n}\n";
+        return $this->renderStub('factory', [
+            'namespace' => "Modules\\{$module}\\Database\\Factories",
+            'model_class' => $modelClass,
+            'class' => $class,
+        ]);
     }
 
     private function seederContents(string $module, string $class, string $modelClass): string
     {
-        return "<?php\n\nnamespace Modules\\{$module}\\Database\\Seeders;\n\nuse Illuminate\\Database\\Seeder;\nuse {$modelClass};\n\nclass {$class}Seeder extends Seeder\n{\n    public function run(): void\n    {\n        // {$class}::factory()->count(10)->create();\n    }\n}\n";
+        return $this->renderStub('seeder', [
+            'namespace' => "Modules\\{$module}\\Database\\Seeders",
+            'model_class' => $modelClass,
+            'class' => $class,
+        ]);
     }
 
     private function policyContents(string $module, string $class, string $modelClass): string
     {
-        return "<?php\n\nnamespace Modules\\{$module}\\Policies;\n\nuse {$modelClass};\n\nclass {$class}Policy\n{\n    public function viewAny(mixed \$user): bool\n    {\n        return true;\n    }\n\n    public function view(mixed \$user, {$class} \${$this->variableName($class)}): bool\n    {\n        return true;\n    }\n}\n";
+        return $this->renderStub('policy', [
+            'namespace' => "Modules\\{$module}\\Policies",
+            'model_class' => $modelClass,
+            'model_class_basename' => $class,
+            'class' => $class,
+            'variable' => $this->variableName($class),
+        ]);
     }
 
     private function controllerContents(string $module, string $class, string $modelClass, bool $resource, bool $requests): string
@@ -262,17 +335,30 @@ final class ModuleArtifactGenerator
             $methods = "    public function index(): Response\n    {\n        return response()->noContent();\n    }\n\n    public function store(".($requests ? "Store{$class}Request \$request" : '')."): Response\n    {\n        return response()->noContent();\n    }\n\n    public function show({$class} \${$this->variableName($class)}): Response\n    {\n        return response()->noContent();\n    }\n\n    public function update(".($requests ? "Update{$class}Request \$request, " : '')."{$class} \${$this->variableName($class)}): Response\n    {\n        return response()->noContent();\n    }\n\n    public function destroy({$class} \${$this->variableName($class)}): Response\n    {\n        return response()->noContent();\n    }\n";
         }
 
-        return "<?php\n\nnamespace Modules\\{$module}\\Http\\Controllers;\n\n".implode(PHP_EOL, $imports)."\n\nclass {$class}Controller\n{\n{$methods}}\n";
+        return $this->renderStub('controller', [
+            'namespace' => "Modules\\{$module}\\Http\\Controllers",
+            'imports' => implode(PHP_EOL, $imports),
+            'class' => $class,
+            'methods' => $methods,
+        ]);
     }
 
     private function requestContents(string $module, string $class): string
     {
-        return "<?php\n\nnamespace Modules\\{$module}\\Http\\Requests;\n\nuse Illuminate\\Foundation\\Http\\FormRequest;\n\nclass {$class} extends FormRequest\n{\n    public function authorize(): bool\n    {\n        return true;\n    }\n\n    public function rules(): array\n    {\n        return [];\n    }\n}\n";
+        return $this->renderStub('request', [
+            'namespace' => "Modules\\{$module}\\Http\\Requests",
+            'class' => $class,
+        ]);
     }
 
     private function resourceContents(string $module, string $class, string $modelClass): string
     {
-        return "<?php\n\nnamespace Modules\\{$module}\\Http\\Resources;\n\nuse {$modelClass};\nuse Illuminate\\Http\\Request;\nuse Illuminate\\Http\\Resources\\Json\\JsonResource;\n\n/** @mixin {$class} */\nclass {$class}Resource extends JsonResource\n{\n    public function toArray(Request \$request): array\n    {\n        return parent::toArray(\$request);\n    }\n}\n";
+        return $this->renderStub('resource', [
+            'namespace' => "Modules\\{$module}\\Http\\Resources",
+            'model_class' => $modelClass,
+            'model_class_basename' => $class,
+            'class' => $class,
+        ]);
     }
 
     private function variableName(string $class): string

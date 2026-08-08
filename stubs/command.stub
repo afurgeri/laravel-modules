@@ -1,0 +1,17 @@
+<?php
+
+namespace {{ namespace }};
+
+use Illuminate\Console\Command;
+
+class {{ class }} extends Command
+{
+    protected $signature = '{{ signature }}';
+
+    protected $description = '{{ description }}';
+
+    public function handle(): int
+    {
+        return self::SUCCESS;
+    }
+}

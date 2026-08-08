@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\File;
+use Symfony\Component\Process\Process;
 
 beforeEach(function (): void {
     $this->module = 'Catalog';
@@ -172,4 +173,96 @@ test('module generators create standalone artifacts', function (): void {
         ->and(File::exists($this->modulePath.'/database/factories/ReportFactory.php'))->toBeTrue()
         ->and(File::exists($this->modulePath.'/src/Policies/ReportPolicy.php'))->toBeTrue()
         ->and(File::glob($this->modulePath.'/database/migrations/*_create_reports_table.php'))->not->toBeEmpty();
+});
+
+test('module generators support the second-stage Laravel artifacts', function (): void {
+    $this->artisan('make:module', ['name' => $this->module])
+        ->assertExitCode(0);
+
+    $commands = [
+        ['make:module-job', 'ProcessProducts'],
+        ['make:module-event', 'ProductsImported'],
+        ['make:module-listener', 'SendProductNotification'],
+        ['make:module-notification', 'ProductImportedNotification'],
+        ['make:module-mail', 'ProductReportMail'],
+        ['make:module-command', 'ReindexProducts'],
+        ['make:module-middleware', 'EnsureCatalogAccess'],
+        ['make:module-rule', 'ValidProductCode'],
+        ['make:module-observer', 'ProductObserver'],
+        ['make:module-cast', 'MoneyCast'],
+        ['make:module-enum', 'ProductStatus'],
+        ['make:module-resource', 'ProductResource'],
+    ];
+
+    foreach ($commands as [$command, $name]) {
+        $options = [
+            'name' => $name,
+            '--module' => $this->module,
+        ];
+
+        if ($command === 'make:module-observer') {
+            $options['--model'] = 'Product';
+        }
+
+        if ($command === 'make:module-resource') {
+            $options['--model'] = 'Product';
+        }
+
+        $this->artisan($command, $options)->assertExitCode(0);
+    }
+
+    expect(File::exists($this->modulePath.'/src/Jobs/ProcessProducts.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Events/ProductsImported.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Listeners/SendProductNotification.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Notifications/ProductImportedNotification.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Mail/ProductReportMail.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Console/Commands/ReindexProducts.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Http/Middleware/EnsureCatalogAccess.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Rules/ValidProductCode.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Observers/ProductObserver.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Casts/MoneyCast.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Enums/ProductStatus.php'))->toBeTrue()
+        ->and(File::exists($this->modulePath.'/src/Http/Resources/ProductResource.php'))->toBeTrue();
+
+    foreach (File::allFiles($this->modulePath.'/src') as $file) {
+        $process = new Process(['php', '-l', $file->getPathname()]);
+        $process->run();
+
+        expect($process->isSuccessful())->toBeTrue($process->getErrorOutput());
+    }
+});
+
+test('module model generation supports nested names, pivots, and force', function (): void {
+    $this->artisan('make:module', ['name' => $this->module])
+        ->assertExitCode(0);
+
+    $this->artisan('make:module-model', [
+        'name' => 'Admin/Product',
+        '--module' => $this->module,
+    ])->assertExitCode(0);
+
+    $this->artisan('make:module-model', [
+        'name' => 'Membership',
+        '--module' => $this->module,
+        '--pivot' => true,
+        '--migration' => true,
+    ])->assertExitCode(0);
+
+    $productPath = $this->modulePath.'/src/Models/Admin/Product.php';
+
+    expect(File::get($productPath))
+        ->toContain('namespace Modules\\Catalog\\Models\\Admin;')
+        ->and(File::get($this->modulePath.'/src/Models/Membership.php'))
+        ->toContain('extends Pivot')
+        ->and(File::glob($this->modulePath.'/database/migrations/*_create_membership_table.php'))->not->toBeEmpty();
+
+    File::put($productPath, '<?php // original');
+
+    $this->artisan('make:module-model', [
+        'name' => 'Admin/Product',
+        '--module' => $this->module,
+        '--force' => true,
+    ])->assertExitCode(0);
+
+    expect(File::get($productPath))->toContain('class Product extends Model');
 });

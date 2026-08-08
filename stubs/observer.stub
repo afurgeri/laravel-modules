@@ -1,0 +1,23 @@
+<?php
+
+namespace {{ namespace }};
+
+use {{ model_class }};
+
+class {{ class }}
+{
+    public function created({{ model_class_basename }} ${{ variable }}): void
+    {
+        //
+    }
+
+    public function updated({{ model_class_basename }} ${{ variable }}): void
+    {
+        //
+    }
+
+    public function deleted({{ model_class_basename }} ${{ variable }}): void
+    {
+        //
+    }
+}

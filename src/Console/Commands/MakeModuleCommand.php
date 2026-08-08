@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use JsonException;
 use RuntimeException;
+use Symfony\Component\Process\Process;
 
 class MakeModuleCommand extends Command
 {
@@ -63,7 +64,7 @@ class MakeModuleCommand extends Command
         $this->components->info("Module [{$name}] created successfully.");
 
         if ($autoloadChanged) {
-            $this->components->warn('Run [composer dump-autoload] to load the new module namespaces.');
+            $this->refreshAutoload();
         }
 
         return self::SUCCESS;
@@ -187,5 +188,20 @@ class MakeModuleCommand extends Command
         }
 
         File::put($path, implode("\n", $lines));
+    }
+
+    private function refreshAutoload(): void
+    {
+        $process = new Process(['composer', 'dump-autoload', '--no-interaction'], base_path());
+        $process->setTimeout(120);
+        $process->run();
+
+        if ($process->isSuccessful()) {
+            $this->components->info('Composer autoload refreshed.');
+
+            return;
+        }
+
+        $this->components->warn('Composer autoload could not be refreshed automatically. Run [composer dump-autoload].');
     }
 }

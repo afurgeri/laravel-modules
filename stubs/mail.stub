@@ -1,0 +1,13 @@
+<?php
+
+namespace {{ namespace }};
+
+use Illuminate\Mail\Mailable;
+
+class {{ class }} extends Mailable
+{
+    public function build(): static
+    {
+        return $this;
+    }
+}
